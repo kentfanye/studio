@@ -1,4 +1,3 @@
-
 'use server';
 /**
  * @fileOverview This file defines a Genkit flow to generate Feng Shui art options based on a user's Ba Zi.
@@ -79,62 +78,86 @@ const generateFengShuiArtFlow = ai.defineFlow(
     outputSchema: GenerateFengShuiArtOutputSchema,
   },
   async (baziInput) => {
+    console.log('[generateFengShuiArtFlow] Starting flow with input:', JSON.stringify(baziInput));
+
     // Step 1: Generate textual descriptions and image prompts
-    const { output: textualIdeas } = await generateArtIdeasPrompt(baziInput);
+    let textualIdeas;
+    try {
+      console.log('[generateFengShuiArtFlow] Calling generateArtIdeasPrompt...');
+      const result = await generateArtIdeasPrompt(baziInput);
+      textualIdeas = result.output;
+      // Log only a snippet of textualIdeas if it's large
+      const textualIdeasLog = textualIdeas ? JSON.stringify(textualIdeas) : 'null/undefined';
+      console.log(`[generateFengShuiArtFlow] Received textualIdeas (first 500 chars): ${textualIdeasLog.substring(0, 500)}${textualIdeasLog.length > 500 ? '...' : ''}`);
+    } catch (error) {
+      console.error('[generateFengShuiArtFlow] Error calling generateArtIdeasPrompt:', error instanceof Error ? error.stack : error);
+      throw new Error(`Failed to generate art ideas: ${error instanceof Error ? error.message : String(error)}`);
+    }
 
     if (!textualIdeas || textualIdeas.length !== 3) {
-      console.error('Failed to generate the required number of art ideas. Received:', textualIdeas);
-      throw new Error('Failed to generate the required number of art ideas. The AI did not return three options.');
+      const errorMsg = `Failed to generate the required number of art ideas. Expected 3, received: ${textualIdeas ? textualIdeas.length : 'null/undefined'}. Data: ${JSON.stringify(textualIdeas)}`;
+      console.error('[generateFengShuiArtFlow]', errorMsg);
+      throw new Error(errorMsg);
     }
 
     // Step 2: Generate images for each idea in parallel
+    console.log('[generateFengShuiArtFlow] Starting image generation for 3 ideas...');
     const artWithOptions: GenerateFengShuiArtOutput = await Promise.all(
       textualIdeas.map(async (idea, index) => {
+        const imageGenLogPrefix = `[generateFengShuiArtFlow] Image ${index + 1}:`;
         try {
+          console.log(`${imageGenLogPrefix} Attempting to generate image with prompt (first 100 chars): "${idea.imagePrompt.substring(0,100)}..."`);
           const { media } = await ai.generate({
             model: 'googleai/gemini-2.0-flash-exp', // Specific model for image generation
             prompt: idea.imagePrompt,
             config: {
               responseModalities: ['TEXT', 'IMAGE'], // Must provide both for image generation
-              safetySettings: [ // Stricter safety for image generation
+              safetySettings: [
                 { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_LOW_AND_ABOVE'},
                 { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_MEDIUM_AND_ABOVE'},
                 { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_MEDIUM_AND_ABOVE'},
                 { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_MEDIUM_AND_ABOVE'},
               ],
-              // You might need to experiment with other parameters like numOutput (if supported and needed)
             },
           });
 
           if (!media || !media.url) {
-            console.warn(`Image generation failed for prompt: "${idea.imagePrompt}". Using placeholder.`);
+            console.warn(`${imageGenLogPrefix} Image generation failed for prompt (first 100 chars): "${idea.imagePrompt.substring(0,100)}...". Media object: ${JSON.stringify(media)}. Using placeholder.`);
             return {
               description: idea.description,
-              // Using a placeholder from picsum.photos
               image: `https://picsum.photos/seed/${encodeURIComponent(idea.imagePrompt.substring(0, 15)) + index}/400/300`,
             };
           }
-
+          console.log(`${imageGenLogPrefix} Image generated successfully. URL starts with: ${media.url.substring(0,100)}...`);
           return {
             description: idea.description,
             image: media.url, // This will be the data URI, e.g., "data:image/png;base64,..."
           };
         } catch (error) {
-          console.error(`Error generating image for prompt "${idea.imagePrompt}":`, error);
+          console.error(`${imageGenLogPrefix} Error generating image for prompt (first 100 chars) "${idea.imagePrompt.substring(0,100)}...":`, error instanceof Error ? error.stack : error);
           // Fallback to a placeholder image in case of an error
           return {
             description: idea.description,
-            image: `https://picsum.photos/seed/error${index}${Math.random()}/400/300`,
+            image: `https://picsum.photos/seed/error${index}${Date.now()}/400/300`, // Add Date.now() for more unique placeholder
           };
         }
       })
     );
-
+    console.log('[generateFengShuiArtFlow] All images processed (or placeholders used). Final output count:', artWithOptions.length);
     return artWithOptions;
   }
 );
 
 // Exported wrapper function to call the flow
 export async function generateFengShuiArt(input: GenerateFengShuiArtInput): Promise<GenerateFengShuiArtOutput> {
-  return generateFengShuiArtFlow(input);
+  console.log('[generateFengShuiArt] Invoked with input:', JSON.stringify(input));
+  try {
+    const result = await generateFengShuiArtFlow(input);
+    console.log('[generateFengShuiArt] Flow completed successfully.');
+    return result;
+  } catch (error) {
+    console.error('[generateFengShuiArt] Flow failed with error:', error instanceof Error ? error.stack : error);
+    throw error; // Re-throw the error to be caught by the calling page
+  }
 }
+
