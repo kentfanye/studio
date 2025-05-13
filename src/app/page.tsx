@@ -1,3 +1,4 @@
+
 'use client';
 
 import type { Birthdate, BaZi } from '@/services/ba-zi-converter';
@@ -57,6 +58,9 @@ export default function Home() {
       setRecommendations(artResult);
       setStep('recommendations'); // Move to Recommendations display step
     } catch (err) {
+      // IMPORTANT: Check Vercel function logs for the detailed error message output by console.error below.
+      // This will provide more specific information than the generic message shown to the user.
+      // Common causes include missing API keys in Vercel environment variables, API quota issues, or model access problems.
       console.error('Error generating Feng Shui art:', err);
       setError('Failed to generate artwork recommendations. Please try again.');
     } finally {
